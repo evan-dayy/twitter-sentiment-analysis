@@ -1,0 +1,6 @@
+"0","library(scales)"
+"0","normalize = function(x){"
+"0","        (x-mean(x))/sd(x)"
+"0","}"
+"0","sentment_bing$sentiment = normalize(sentment_bing$sentiment)"
+"0","head(sentment_bing)"

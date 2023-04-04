@@ -1,0 +1,21 @@
+"0","library(statsr)"
+"0","bing_afinn = rbind(sentment_bing, sentment_afinn)"
+"0","bing_afinn  = cbind(bing_afinn, method = rep(c('bing', 'afinn'), each = nrow(sentment_afinn)))"
+"0","inference(y = sentiment, x = method, data = bing_afinn, type = 'ht',"
+"0","          method = 'theoretical', statistic = 'mean', alternative = 'twosided')"
+"2","Missing null value, set to 0"
+"1","Response variable: numerical
+"
+"1","Explanatory variable: categorical (2 levels) 
+"
+"1","n_afinn = 276, y_bar_afinn = 0, s_afinn = 1
+"
+"1","n_bing = 276, y_bar_bing = 0, s_bing = 1
+"
+"1","H0: mu_afinn =  mu_bing
+"
+"1","HA: mu_afinn != mu_bing
+"
+"1","t = 0, df = 275
+"
+"1","p_value = 1"

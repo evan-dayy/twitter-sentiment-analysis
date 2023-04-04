@@ -1,0 +1,26 @@
+{
+    "collab_server" : "",
+    "contents" : "",
+    "created" : 1618736537968.000,
+    "dirty" : false,
+    "encoding" : "UTF-8",
+    "folds" : "",
+    "hash" : "1017471109",
+    "id" : "A5253BAD",
+    "lastKnownWriteTime" : 1618742273,
+    "last_content_update" : 1618742273275,
+    "path" : "~/Desktop/ Class/2021 Spring/ABF&E - NLP Learning | CLNLP/R-NLP/pre.Rmd",
+    "project_path" : "pre.Rmd",
+    "properties" : {
+        "cursorPosition" : "676,0",
+        "last_setup_crc32" : "",
+        "scrollLine" : "0"
+    },
+    "read_only" : false,
+    "read_only_alternatives" : [
+    ],
+    "relative_order" : 5,
+    "source_on_save" : false,
+    "source_window" : "",
+    "type" : "r_markdown"
+}

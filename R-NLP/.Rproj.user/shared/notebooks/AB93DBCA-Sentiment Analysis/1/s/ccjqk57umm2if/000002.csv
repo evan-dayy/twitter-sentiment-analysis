@@ -1,0 +1,8 @@
+"0","ggplot(data = full_nrc) +"
+"0","        geom_col(aes(as.POSIXct(datetime), trust, fill = state))+"
+"0","        geom_line(aes(x = as.POSIXct(datetime),price,group = 1),"
+"0","                  alpha = 0.6)+"
+"0","        geom_point(aes(x = as.POSIXct(datetime),price,group = 1, col = 2),"
+"0","                  alpha = 0.2, show.legend = FALSE)+"
+"0","        theme_bw()+labs(title = 'BING', x = 'Date')+theme(axis.text.x = element_text(angle = 45, vjust = 0.5))+"
+"0","        scale_x_datetime(breaks = date_breaks('1 day'), labels = date_format(""%m-%d""))"

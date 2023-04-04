@@ -1,0 +1,5 @@
+"0","p1 = ggplot(sentment_bing, aes(as.POSIXct(time), sentiment, fill = as.character(date))) +"
+"0","        geom_col(show.legend = FALSE)+"
+"0","        theme_bw()+labs(title = 'BING', x = 'Date')+theme(axis.text.x = element_text(angle = 45, vjust = 0.5))+"
+"0","        scale_x_datetime(breaks = date_breaks('1 day'), labels = date_format(""%m-%d""))"
+"0","p1"

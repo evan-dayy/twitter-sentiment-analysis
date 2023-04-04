@@ -1,0 +1,1 @@
+"0","legend('topright', col = c(1,4), pch = c(1,2), legend = c(""price"",""pred""), )"

@@ -1,0 +1,4 @@
+"0","ggplot(sentment_bing, aes(as.POSIXct(time), sentiment, fill = date)) +"
+"0","        geom_col(show.legend = FALSE) +"
+"0","        facet_wrap(.~date, ncol = 3, scales = ""free_x"")+"
+"0","        theme_bw()+labs(title = 'BING', x = 'Date')"

@@ -1,0 +1,4 @@
+"0","full_nrc_close =  full_nrc%>%"
+"0","        filter(state == 'close')"
+"0","full_nrc_close = na.omit(full_nrc_close)"
+"0","head(full_nrc_close)"

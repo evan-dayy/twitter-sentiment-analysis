@@ -1,0 +1,5 @@
+"0","full_nrc$diff = c(diff(full_nrc$price),0)"
+"0","full_nrc$trend = ifelse(full_nrc$diff>0, 1, 0)"
+"0","full_nrc$trend = factor(full_nrc$trend)"
+"0","regTree = rpart(trend ~ anger+anticipation+disgust+fear+joy+negative+positive+sadness+surprise+trust, data = full_nrc, cp = 0.04225351)"
+"0","rpart.plot(regTree, cex = 1.1)"

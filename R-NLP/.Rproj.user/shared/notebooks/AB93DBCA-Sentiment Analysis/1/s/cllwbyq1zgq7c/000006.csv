@@ -1,0 +1,4 @@
+"0","full_nrc_open = full_nrc %>%"
+"0","        filter(state == 'open')"
+"0","full_nrc_open = na.omit(full_nrc_open)"
+"0","head(full_nrc_open)"

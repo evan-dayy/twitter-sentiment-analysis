@@ -1,0 +1,2 @@
+"0","stock$price = normalize(stock$price)"
+"0","head(stock)"
