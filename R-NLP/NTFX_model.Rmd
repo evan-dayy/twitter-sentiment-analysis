@@ -1,0 +1,781 @@
+---
+title: "NTFX"
+author: "Evan Day"
+date: '2023-05-08'
+output: pdf_document
+---
+```{r setup, include=FALSE, warning=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+---
+
+```{r, include=FALSE, warning=FALSE, message=FALSE}
+library(readxl)
+library(dplyr)
+library(tidytext)
+library(tm)
+library(ggplot2)
+library(stringr)
+library(tidytext)
+library(textdata)
+library(tidyr)
+library(gridExtra)
+library(rpart)
+library(rpart.plot)
+library(caret)
+```
+
+---
+---
+
+## NFLX
+
+---- 
+
+### Read Text file and Text Cleanning 
+
+```{r,warning=FALSE, message=FALSE}
+# NFLX ---------------------
+# read data------------------
+NFLX = read.csv('NFLX 03-25 to 04-10.csv')
+
+# time with one-hour gap -------------
+NFLX = NFLX[,c(3,5)]
+NFLX$created_at = as.character(NFLX$created_at)
+NFLX$created_at = strptime(gsub('T', " ",
+                                substr(NFLX$created_at,1,13)), 
+                           format = "%Y-%m-%d %H") # time gap with hour
+text_df = tibble(time = NFLX$created_at,text = NFLX$text)
+text_df$text = as.character(text_df$text)
+text_df = text_df %>%
+        mutate(date = as.Date(time))
+
+# remove the ... ---------------------
+
+Textprocessing <- function(x)
+{       x = gsub("?(f|ht)(tp)(s?)(://)(.*)[.|/](.*)", " ", x)
+x = gsub('\\b+RT', '', x) ## Remove RT
+x = gsub("(?:\\s*#\\w+)+\\s*$", " ", x)
+x = gsub('@\\S+', '', x) ## Remove Mentions
+x = gsub('[[:cntrl:]]', ' ', x) ## Remove Controls and special characters
+x = gsub("\\d", '', x) ## Remove Controls and special characters
+x = gsub('[[:punct:]]', ' ', x) ## Remove Punctuations
+x = gsub("^[[:space:]]*"," ",x) ## Remove leading whitespaces
+x = gsub("[[:space:]]*$"," ",x) ## Remove trailing whitespaces
+x = gsub('[0-9]+', ' ', x) ## Remove all the number 
+gsub(' +',' ',x) ## Remove extra whitespaces
+}
+
+text_df$text = Textprocessing(text_df$text)
+```
+
+The following table shows the tweet number per hour with a barplot. 
+
+```{r,warning=FALSE, message=FALSE}
+# create the byhour-text_df -----------------
+text_df$time = as.character(text_df$time)
+text_df1 = text_df %>%
+        group_by(time) %>%
+        count(time) %>%
+        arrange(time)
+text_df %>%
+        group_by(time) %>%
+        count(time) %>%
+        arrange(time) %>%
+        ggplot(aes(x = as.POSIXct(time), y = n, fill = as.character(time))) +
+        geom_col(show.legend = FALSE)+theme_bw()
+library(writexl)
+write_xlsx(text_df1, 'nflx.xlsx')
+
+```
+
+paste all the text together group by hour, the following table shows an example of the text dataframe. 
+
+```{r,warning=FALSE, message=FALSE}
+byhour_text_df = text_df %>% 
+        group_by(date,time) %>%
+        summarise_all(paste, collapse = ' ') # paste the test together group by 1 hour
+head(byhour_text_df)
+paste('there are total', nrow(byhour_text_df), 'observation')
+```
+
+
+```{r, warning=FALSE, message=FALSE}
+# Tidy the text -------
+tidy_books <- text_df %>%
+        unnest_tokens(word, text)%>% # separate words 
+        anti_join(stop_words) ## omit the stop words 
+```
+
+---
+
+### Sentiment Data frame with bing, afinn, and nrc
+
+We start with the bing data frame
+
+```{r,warning=FALSE, message=FALSE}
+
+# sentiment analysis --------
+## Bing method
+bing<- get_sentiments("bing")
+sentment_bing = tidy_books %>%
+        inner_join(bing) %>%
+        count(date, time, word, sentiment) %>%
+        spread(sentiment, n, fill = 0) %>%
+        mutate(sentiment = positive - negative) %>% 
+        group_by(date, time) %>%
+        summarise(sentiment = sum(sentiment))
+head(sentment_bing)
+```
+
+then, we normalize the sentiment, normalized data has mean = 0 // aother way is rescale to c(-3,3)
+
+
+```{r,warning=FALSE, message=FALSE}
+library(scales)
+normalize = function(x){
+        (x-mean(x))/sd(x)
+}
+sentment_bing$sentiment = normalize(sentment_bing$sentiment)
+head(sentment_bing)
+```
+
+and then, we plot the normalized sentiment against the time.
+
+```{r,warning=FALSE, message=FALSE}
+ggplot(sentment_bing, aes(as.POSIXct(time), sentiment, fill = date)) +
+        geom_col(show.legend = FALSE) +
+        facet_wrap(.~date, ncol = 3, scales = "free_x")+
+        theme_bw()+labs(title = 'BING', x = 'Date')
+p1 = ggplot(sentment_bing, aes(as.POSIXct(time), sentiment, fill = as.character(date))) +
+        geom_col(show.legend = FALSE)+
+        theme_bw()+labs(title = 'BING', x = 'Date')+theme(axis.text.x = element_text(angle = 45, vjust = 0.5))+
+        scale_x_datetime(breaks = date_breaks('1 day'), labels = date_format("%m-%d"))
+p1
+```
+
+And then, we deal with the afinn sentiment dataframe
+
+
+```{r,warning=FALSE, message=FALSE}
+## afinn
+afinn<- get_sentiments("afinn")
+sentment_afinn = tidy_books %>%
+        inner_join(afinn) %>%
+        group_by(date, time) %>%
+        summarise(sentiment = sum(value))
+
+sentment_afinn$sentiment = normalize(sentment_afinn$sentiment)
+head(sentment_afinn)
+```
+
+and then, we plot the normalized sentiment against the time. // Aother method is rescale to c(-3,3)
+
+```{r,warning=FALSE, message=FALSE}
+ggplot(sentment_afinn, aes(as.POSIXct(time), sentiment, fill = date)) +
+        geom_col(show.legend = FALSE) +
+        facet_wrap(.~date, ncol = 3, scales = "free_x")+
+        theme_bw()+
+        labs(title = 'AFINN', x = 'Date')
+
+p2 = ggplot(sentment_afinn, aes(as.POSIXct(time), sentiment, fill = as.character(date))) +
+        geom_col(show.legend = FALSE)+
+        theme_bw()+
+        labs(title = 'AFINN', x = 'Date')+theme(axis.text.x = element_text(angle = 45, vjust = 0.5))+
+        scale_x_datetime(breaks = date_breaks('1 day'), labels = date_format("%m-%d"))
+p2
+```
+
+we compare the two sentiment plot together
+
+```{r,warning=FALSE, message=FALSE}
+grid.arrange(p1, p2, ncol = 1)
+```
+
+using t-test to check the whether there is a difference between bing lexicon and afinn lexicon, however the distriibution must be similar. ( this is meaningless, because we have already normalize the data, the distributio will be almost the same
+
+```{r}
+library(statsr)
+bing_afinn = rbind(sentment_bing, sentment_afinn)
+bing_afinn  = cbind(bing_afinn, method = rep(c('bing', 'afinn'), each = nrow(sentment_afinn)))
+inference(y = sentiment, x = method, data = bing_afinn, type = 'ht',
+          method = 'theoretical', statistic = 'mean', alternative = 'twosided')
+
+```
+
+we should use the KS-test to check the distribution: as a result, reject the null h0, the distribution are different. 
+
+```{r}
+bing_afinn = left_join(sentment_bing, sentment_afinn, by = 'time')
+colnames(bing_afinn)[c(3,5)] = c('bing', 'afinn')
+ks.test(bing_afinn$bing,bing_afinn$afinn, alternative = 'two.sided')
+```
+
+Then, here is the method with nrc lexicon
+
+```{r,warning=FALSE, message=FALSE}
+## nrc
+nrc<- get_sentiments("nrc")
+sentment_nrc = tidy_books %>%
+        inner_join(nrc) %>%
+        count(date, time, word, sentiment) %>%
+        spread(sentiment, n, fill = 0) %>%
+        select(-word)%>%
+        group_by(date, time) %>%
+        summarise_all(sum)
+head(sentment_nrc)
+
+```
+
+```{r}
+library(reshape2)
+melt_nrc = cbind(time =rep(sentment_nrc$time,10),  melt(sentment_nrc[,3:12]))
+ggplot(melt_nrc, aes(as.POSIXct(time), value, fill = variable)) +
+        geom_col(show.legend = FALSE) +
+        facet_wrap(.~variable, ncol = 2, scales = "free_x")+
+        theme_bw()+labs(title = 'BING', x = 'Date')+
+        scale_x_datetime(breaks = date_breaks('2 days'), labels = date_format("%m-%d"))
+
+```
+
+
+---
+
+### NFLX
+### Stock Information
+
+```{r}
+stock_NFLX = read_excel('AAPL GOOG....xlsx', sheet = 'nflx') # read the stock Information 
+stock_NFLX = stock_NFLX[,c(3,2)]
+stock_NFLX$time = as.character(stock_NFLX$time )
+stock_NFLX$time = strptime(gsub('T', " ",
+                                substr(stock_NFLX$time,1,13)), 
+                           format = "%Y-%m-%d %H") # time gap with hour
+stock_NFLX$time = as.character(stock_NFLX$time )
+stock = stock_NFLX %>% arrange(time)
+head(stock)
+```
+
+normalize the price data:
+
+```{r}
+stock$price = normalize(stock$price)
+head(stock)
+```
+
+
+```{r}
+
+stock_afinn = ggplot() +
+        geom_col(show.legend = FALSE, 
+                 data =sentment_afinn, 
+                 aes(as.POSIXct(time), sentiment, fill = as.character(date)))+
+        geom_line(show.legend = FALSE, data = stock, 
+                  aes(x = as.POSIXct(time), 
+                      price, group = 1, alpha = 0.6))+
+        geom_point(show.legend = FALSE, data = stock, aes(x = as.POSIXct(time),
+                                                         price,group = 1),
+                  alpha = 0.1)+
+        theme_bw()+
+        labs(title = 'AFINN', x = 'Date')+theme(axis.text.x = element_text(angle = 45, vjust = 0.5))+
+        scale_x_datetime(breaks = date_breaks('1 day'), labels = date_format("%m-%d"))
+     
+stock_bing = ggplot() +
+        geom_col(data = sentment_bing, aes(as.POSIXct(time), sentiment, fill = as.character(date)),
+                 show.legend = FALSE)+
+        geom_line(show.legend = FALSE, data = stock, aes(x = as.POSIXct(time),
+                                                         price,group = 1),
+                  alpha = 0.6)+
+        geom_point(show.legend = FALSE, data = stock, aes(x = as.POSIXct(time),
+                                                         price,group = 1),
+                  alpha = 0.1)+
+        theme_bw()+labs(title = 'BING', x = 'Date')+theme(axis.text.x = element_text(angle = 45, vjust = 0.5))+
+        scale_x_datetime(breaks = date_breaks('1 day'), labels = date_format("%m-%d"))
+
+grid.arrange(stock_afinn, stock_bing, ncol = 1)
+```
+
+2. Build the model dataframe:
+
+```{r}
+## build the data frame ----------
+## for nrc:
+colnames(stock)[1] = 'datetime'
+stock$date = as.Date(stock$datetime, format = "%Y-%m-%d")
+stock$datetime = as.POSIXct(stock$datetime)
+stock$time_stock = format(stock$datetime, format = '%H:%M')
+stock = stock[order(stock$datetime, decreasing = FALSE),]
+
+colnames(sentment_nrc)[2] = 'datetime'
+sentment_nrc$datetime = as.POSIXct(sentment_nrc$datetime)
+sentment_nrc$time_se = format(sentment_nrc$datetime, format = '%H:%M')
+full_nrc = full_join(stock,sentment_nrc)
+```
+
+Here we need to deal with several questions:
+        1. Stock maket open at 9 am and close at 4 pm
+        2. At the open time, stock market record the XX:30, which is not consistent with sentimennt XX::00
+        3. At close time, stock market also record some stock price
+
+
+```{r}
+# figure out whether it is close or open time
+full_nrc$time_stock = ifelse(is.na(full_nrc$time_stock), 
+                             full_nrc$time_se, full_nrc$time_stock) 
+full_nrc = full_nrc[,-15]
+opentime = "09:00"
+closetime = "16:00"
+full_nrc$state = ifelse((strptime(full_nrc$time_stock, format = '%H:%M') >= strptime(opentime, format = '%H:%M')) & (strptime(full_nrc$time_stock, format = '%H:%M') <= strptime(closetime, format = '%H:%M')), 'open', 'close' )
+nflx_nrc = write_xlsx(full_nrc, 'nflx_nrc.xlsx')
+```
+
+Separate the dataframe into close data_frame and open data_frame
+
+```{r}
+full_nrc_close =  full_nrc%>%
+        filter(state == 'close')
+full_nrc_close = na.omit(full_nrc_close)
+head(full_nrc_close)
+full_nrc_open = full_nrc %>%
+        filter(state == 'open')
+full_nrc_open = na.omit(full_nrc_open)
+head(full_nrc_open)
+
+full_nrc = rbind(full_nrc_close,full_nrc_open)
+
+full_nrc$anger  = normalize(full_nrc$anger )
+full_nrc$anticipation  = normalize(full_nrc$anticipation )
+full_nrc$disgust  = normalize(full_nrc$disgust )
+full_nrc$fear  = normalize(full_nrc$fear )
+full_nrc$joy  = normalize(full_nrc$joy )
+full_nrc$negative  = normalize(full_nrc$negative )
+full_nrc$positive  = normalize(full_nrc$positive )
+full_nrc$sadness  = normalize(full_nrc$sadness )
+full_nrc$surprise  = normalize(full_nrc$surprise )
+full_nrc$trust  = normalize(full_nrc$trust )
+
+```
+
+---
+
+### NFLX NRC Regression Model result
+
+1. this is the model for total recording
+```{r}
+md_nrc = lm(price ~ anger+anticipation+disgust+fear+joy+negative+positive+sadness+surprise+trust, data = full_nrc)
+summary(md_nrc)
+library(randomForest)
+library(xgboost)
+set.seed(1234)
+predictors <- c("anger", "anticipation", "disgust", "fear", "joy", "negative", "positive", "sadness", "surprise", "trust")
+target <- "price"
+# ranodm forest
+md_nrc_rf <- randomForest(formula = as.formula(paste(target, "~", paste(predictors, collapse = "+"))), 
+                      data = full_nrc, 
+                      ntree = 100,
+                      mtry = sqrt(length(predictors)))
+
+# Xgboosting
+md_nrc_xg <- xgboost(data = as.matrix(full_nrc[, predictors]), 
+                 label = as.matrix(full_nrc[, target]), 
+                 nrounds = 100, 
+                 objective = "reg:squarederror")
+```
+
+2. this is the model for close recording
+
+```{r}
+md_nrc_close = lm(price ~ anger+anticipation+disgust+fear+joy+negative+positive+sadness+surprise+trust, data = full_nrc[which(full_nrc$state == 'close'), ])
+summary(md_nrc_close)
+```
+
+3. this is the model for open recording
+
+```{r}
+md_nrc_open = lm(price ~ anger+anticipation+disgust+fear+joy+negative+positive+sadness+surprise+trust, data = full_nrc[which(full_nrc$state == 'open'), ])
+summary(md_nrc_open)
+```
+
+
+the most relative variable is the trust sentiment, plotting its plot and stock price
+
+```{r}
+ggplot(data = full_nrc) +
+        geom_col(aes(as.POSIXct(datetime), trust, fill = state))+
+        geom_line(aes(x = as.POSIXct(datetime),price,group = 1),
+                  alpha = 0.6)+
+        geom_point(aes(x = as.POSIXct(datetime),price,group = 1, col = 2),
+                  alpha = 0.2, show.legend = FALSE)+
+        theme_bw()+labs(title = 'BING', x = 'Date')+theme(axis.text.x = element_text(angle = 45, vjust = 0.5))+
+        scale_x_datetime(breaks = date_breaks('1 day'), labels = date_format("%m-%d"))
+```
+
+---
+
+### NRC Decision Tree 
+maximum Tree
+
+```{r}
+full_nrc$diff = c(diff(full_nrc$price),0)
+full_nrc$trend = ifelse(full_nrc$diff>0, 1, 0)
+full_nrc$trend = factor(full_nrc$trend)
+regTree = rpart(trend ~ anger+anticipation+disgust+fear+joy+negative+positive+sadness+surprise+trust, data = full_nrc, cp = 0)
+rpart.plot(regTree)
+pred_cart = predict(regTree,newdata = full_nrc[,5:15], type = 'class')
+confusionMatrix(pred_cart, full_nrc$trend)
+```
+```{r, fig.height=4}
+
+set.seed(1234)
+predictors <- c("anger", "anticipation", "disgust", "fear", "joy", "negative", "positive", "sadness", "surprise", "trust")
+target <- "price"
+# random forest
+rf_tree <- randomForest(formula = as.formula(paste(target, "~", paste(predictors, collapse = "+"))), 
+                      data = full_nrc, 
+                      ntree = 100,
+                      mtry = sqrt(length(predictors)))
+# xgboosting classification
+predictors <- c("anger", "anticipation", "disgust", "fear", "joy", "negative", "positive", "sadness", "surprise", "trust")
+target <- "price"
+xg_tree <- xgboost(data = as.matrix(full_nrc[, predictors]), 
+                 label = apply(matrix(full_nrc$price), 2, function(x) (x - min(x)) / (max(x) - min(x))), 
+                 nrounds = 100, 
+                 objective = "binary:logistic")
+```
+
+
+
+
+### bing and Afinn regression
+
+```{r}
+## build the data frame and model  ----------
+## for bing:
+sentment_bing = tidy_books %>%
+        inner_join(bing) %>%
+        count(date, time, word, sentiment) %>%
+        spread(sentiment, n, fill = 0) %>%
+        select(-word) %>%
+        group_by(date, time) %>%
+        summarise_all(sum)
+colnames(sentment_bing)[2] = 'datetime'
+sentment_bing$datetime = as.POSIXct(sentment_bing$datetime)
+sentment_bing$time_se = format(sentment_bing$datetime, format = '%H:%M')
+full_bing = full_join(stock,sentment_bing)
+full_bing$time_stock = ifelse(is.na(full_bing$time_stock), 
+                             full_bing$time_se, full_bing$time_stock)
+full_bing = full_bing[,-7]
+opentime = "09:00"
+closetime = "16:00"
+full_bing$state = ifelse((strptime(full_bing$time_stock, format = '%H:%M') >= strptime(opentime, format = '%H:%M')) & (strptime(full_bing$time_stock, format = '%H:%M') <= strptime(closetime, format = '%H:%M')), 'open', 'close' )
+
+full_bing_close =  full_bing%>%
+        filter(state == 'close')
+full_bing_close = na.omit(full_bing_close)
+
+
+
+full_bing_open = full_bing %>%
+        filter(state == 'open')
+full_bing_open = na.omit(full_bing_open)
+
+
+full_bing = rbind(full_bing_close,full_bing_open)
+
+
+
+md_bing = lm(log(price) ~ negative+positive, data = full_bing)
+summary(md_bing)
+md_bing_close = lm(price ~  negative+positive, data = full_bing_close)
+summary(md_bing_close)
+md_bing_open = lm(price ~  negative+positive, data = full_bing_open)
+summary(md_bing_open)
+
+## for afinn
+colnames(sentment_afinn)[2] = 'datetime'
+sentment_afinn$datetime = as.POSIXct(sentment_afinn$datetime)
+sentment_afinn$time_se = format(sentment_afinn$datetime, format = '%H:%M')
+full_afinn = full_join(stock,sentment_afinn)
+
+full_afinn$time_stock = ifelse(is.na(full_afinn$time_stock), 
+                              full_afinn$time_se, full_afinn$time_stock)
+
+full_afinn = full_afinn[,-6]
+opentime = "09:00"
+closetime = "16:00"
+full_afinn$state = ifelse((strptime(full_afinn$time_stock, format = '%H:%M') >= strptime(opentime, format = '%H:%M')) & (strptime(full_afinn$time_stock, format = '%H:%M') <= strptime(closetime, format = '%H:%M')), 'open', 'close' )
+
+full_afinn_close =  full_afinn%>%
+        filter(state == 'close')
+full_afinn_close = na.omit(full_afinn_close)
+
+full_afinn_open = full_afinn %>%
+        filter(state == 'open')
+full_afinn_open = na.omit(full_afinn_open)
+full_afinn = rbind(full_afinn_close,full_afinn_open)
+
+
+md_afinn = lm(log(price) ~ sentiment, data = full_afinn)
+summary(md_afinn)
+
+md_afinn_close = lm(price ~ sentiment, data = full_afinn_close)
+summary(md_afinn_close)
+
+md_afinn_open = lm(price ~ sentiment, data = full_afinn_open)
+summary(md_afinn_open)
+```
+
+
+
+
+
+### Predict the following days
+
+```{r}
+# NFLX ---------------------
+# read data------------------
+NFLX = read.csv('NFLX 04-09 to 04-17.csv')
+
+# time with one-hour gap -------------
+NFLX = NFLX[,c(3,5)]
+NFLX$created_at = as.character(NFLX$created_at)
+NFLX$created_at = strptime(gsub('T', " ",
+                                substr(NFLX$created_at,1,13)), 
+                           format = "%Y-%m-%d %H") # time gap with hour
+text_df = tibble(time = NFLX$created_at,text = NFLX$text)
+text_df$text = as.character(text_df$text)
+text_df = text_df %>%
+        mutate(date = as.Date(time))
+text_df$text = Textprocessing(text_df$text)
+text_df$time = as.character(text_df$time)
+byhour_text_df = text_df %>% 
+        group_by(date,time) %>%
+        summarise_all(paste, collapse = ' ') # paste the test together group by 1 hour
+head(byhour_text_df)
+paste('there are total', nrow(byhour_text_df), 'observation')
+tidy_books <- text_df %>%
+        unnest_tokens(word, text)%>% # separate words 
+        anti_join(stop_words) ## omit the stop words 
+bing<- get_sentiments("bing")
+sentment_bing = tidy_books %>%
+        inner_join(bing) %>%
+        count(date, time, word, sentiment) %>%
+        spread(sentiment, n, fill = 0) %>%
+        mutate(sentiment = positive - negative) %>% 
+        group_by(date, time) %>%
+        summarise(sentiment = sum(sentiment))
+sentment_bing$sentiment = normalize(sentment_bing$sentiment)
+afinn<- get_sentiments("afinn")
+sentment_afinn = tidy_books %>%
+        inner_join(afinn) %>%
+        group_by(date, time) %>%
+        summarise(sentiment = sum(value))
+
+sentment_afinn$sentiment = normalize(sentment_afinn$sentiment)
+nrc<- get_sentiments("nrc")
+sentment_nrc = tidy_books %>%
+        inner_join(nrc) %>%
+        count(date, time, word, sentiment) %>%
+        spread(sentiment, n, fill = 0) %>%
+        select(-word)%>%
+        group_by(date, time) %>%
+        summarise_all(sum)
+stock_NFLX = read_excel('update.xlsx', sheet = 'nflx') # read the stock Information 
+stock_NFLX = stock_NFLX[,c(3,2)]
+stock_NFLX$time = as.character(stock_NFLX$time )
+stock_NFLX$time = strptime(gsub('T', " ",
+                                substr(stock_NFLX$time,1,13)), 
+                           format = "%Y-%m-%d %H") # time gap with hour
+stock_NFLX$time = as.character(stock_NFLX$time )
+stock = stock_NFLX %>% arrange(time)
+stock$price = normalize(stock$price)
+
+## build the data frame ----------
+## for nrc:
+colnames(stock)[1] = 'datetime'
+stock$date = as.Date(stock$datetime, format = "%Y-%m-%d")
+stock$datetime = as.POSIXct(stock$datetime)
+stock$time_stock = format(stock$datetime, format = '%H:%M')
+stock = stock[order(stock$datetime, decreasing = FALSE),]
+
+colnames(sentment_nrc)[2] = 'datetime'
+sentment_nrc$datetime = as.POSIXct(sentment_nrc$datetime)
+sentment_nrc$time_se = format(sentment_nrc$datetime, format = '%H:%M')
+full_nrc = full_join(stock,sentment_nrc)
+# figure out whether it is close or open time
+full_nrc$time_stock = ifelse(is.na(full_nrc$time_stock), 
+                             full_nrc$time_se, full_nrc$time_stock) 
+full_nrc = full_nrc[,-15]
+opentime = "09:00"
+closetime = "16:00"
+full_nrc$state = ifelse((strptime(full_nrc$time_stock, format = '%H:%M') >= strptime(opentime, format = '%H:%M')) & (strptime(full_nrc$time_stock, format = '%H:%M') <= strptime(closetime, format = '%H:%M')), 'open', 'close' )
+full_nrc_close =  full_nrc%>%
+        filter(state == 'close')
+full_nrc_close = na.omit(full_nrc_close)
+head(full_nrc_close)
+full_nrc_open = full_nrc %>%
+        filter(state == 'open')
+full_nrc_open = na.omit(full_nrc_open)
+head(full_nrc_open)
+
+full_nrc = rbind(full_nrc_close,full_nrc_open)
+
+full_nrc$anger  = normalize(full_nrc$anger )
+full_nrc$anticipation  = normalize(full_nrc$anticipation )
+full_nrc$disgust  = normalize(full_nrc$disgust )
+full_nrc$fear  = normalize(full_nrc$fear )
+full_nrc$joy  = normalize(full_nrc$joy )
+full_nrc$negative  = normalize(full_nrc$negative )
+full_nrc$positive  = normalize(full_nrc$positive )
+full_nrc$sadness  = normalize(full_nrc$sadness )
+full_nrc$surprise  = normalize(full_nrc$surprise )
+full_nrc$trust  = normalize(full_nrc$trust )
+## build the data frame and model  ----------
+## for bing:
+sentment_bing = tidy_books %>%
+        inner_join(bing) %>%
+        count(date, time, word, sentiment) %>%
+        spread(sentiment, n, fill = 0) %>%
+        select(-word) %>%
+        group_by(date, time) %>%
+        summarise_all(sum)
+colnames(sentment_bing)[2] = 'datetime'
+sentment_bing$datetime = as.POSIXct(sentment_bing$datetime)
+sentment_bing$time_se = format(sentment_bing$datetime, format = '%H:%M')
+full_bing = full_join(stock,sentment_bing)
+full_bing$time_stock = ifelse(is.na(full_bing$time_stock), 
+                             full_bing$time_se, full_bing$time_stock)
+full_bing = full_bing[,-7]
+opentime = "09:00"
+closetime = "16:00"
+full_bing$state = ifelse((strptime(full_bing$time_stock, format = '%H:%M') >= strptime(opentime, format = '%H:%M')) & (strptime(full_bing$time_stock, format = '%H:%M') <= strptime(closetime, format = '%H:%M')), 'open', 'close' )
+
+full_bing_close =  full_bing%>%
+        filter(state == 'close')
+full_bing_close = na.omit(full_bing_close)
+
+
+
+full_bing_open = full_bing %>%
+        filter(state == 'open')
+full_bing_open = na.omit(full_bing_open)
+
+
+full_bing = rbind(full_bing_close,full_bing_open)
+full_bing$negative = normalize(full_bing$negative)
+full_bing$positive = normalize(full_bing$positive)
+
+## for afinn
+colnames(sentment_afinn)[2] = 'datetime'
+sentment_afinn$datetime = as.POSIXct(sentment_afinn$datetime)
+sentment_afinn$time_se = format(sentment_afinn$datetime, format = '%H:%M')
+full_afinn = full_join(stock,sentment_afinn)
+
+full_afinn$time_stock = ifelse(is.na(full_afinn$time_stock), 
+                              full_afinn$time_se, full_afinn$time_stock)
+
+full_afinn = full_afinn[,-6]
+opentime = "09:00"
+closetime = "16:00"
+full_afinn$state = ifelse((strptime(full_afinn$time_stock, format = '%H:%M') >= strptime(opentime, format = '%H:%M')) & (strptime(full_afinn$time_stock, format = '%H:%M') <= strptime(closetime, format = '%H:%M')), 'open', 'close' )
+
+full_afinn_close =  full_afinn%>%
+        filter(state == 'close')
+full_afinn_close = na.omit(full_afinn_close)
+
+full_afinn_open = full_afinn %>%
+        filter(state == 'open')
+full_afinn_open = na.omit(full_afinn_open)
+full_afinn = rbind(full_afinn_close,full_afinn_open)
+```
+
+
+```{r}
+pred_nrc = predict(md_nrc, newdata = full_nrc[, 5:14])
+full_nrc$pred = pred_nrc
+
+full_nrc = full_nrc %>% arrange(datetime)
+full_nrc1 = full_nrc[42:55, ]
+
+
+plot(full_nrc1$datetime, full_nrc1$price, main = "NFLX", xlab = "Datetime", ylab = "Price", ylim = c(-3,3))
+points(full_nrc1$datetime, full_nrc1$pred,col = 'blue', pch = 2,)
+legend('topright', col = c(1,4), pch = c(1,2), legend = c("price","pred"))
+
+
+
+
+full_nrc1$diff = c(diff(full_nrc1$price),0)
+full_nrc1$trend = ifelse(full_nrc1$diff>0, 1, 0)
+full_nrc1$trend = factor(full_nrc1$trend)
+
+pred_cart = predict(regTree,newdata = full_nrc1[,5:15], type = 'class')
+confusionMatrix(pred_cart, full_nrc1$trend)
+
+
+full_nrc1$diff = c(diff(full_nrc1$price),0)
+full_nrc1$trend = ifelse(full_nrc1$diff>0, 1, 0)
+full_nrc1$trend = factor(full_nrc1$trend)
+
+pred_cart = predict(regTree,newdata = full_nrc1[,5:15], type = 'class')
+confusionMatrix(pred_cart, full_nrc1$trend)
+
+```
+
+```{r}
+pred_nrc = predict(md_nrc_rf, newdata = full_nrc[, 5:14])
+full_nrc$pred = pred_nrc
+
+full_nrc = full_nrc %>% arrange(datetime)
+full_nrc2 = full_nrc[42:55,]
+
+plot(full_nrc2$datetime, full_nrc2$pred, main = "NFLX - Random Forest", xlab = "Datetime", ylab = "Price",col = 'orange', pch = 2, ylim = c(-3, 3))
+points(full_nrc2$datetime, full_nrc2$price)
+legend('topright', col = c(1,4), pch = c(1,2), legend = c("price","pred"), )
+
+
+
+
+full_nrc2$diff = c(diff(full_nrc2$price),0)
+full_nrc2$trend = ifelse(full_nrc2$diff>0, 1, 0)
+full_nrc2$trend = factor(full_nrc2$trend)
+
+pred_cart = predict(rf_tree,newdata = full_nrc1[,5:15], type = 'class')
+confusionMatrix(factor(round(abs(pred_cart))), full_nrc2$trend)
+```
+
+```{r}
+pred_nrc = predict(md_nrc_xg, newdata = as.matrix(full_nrc[, 5:14]))
+full_nrc$pred = pred_nrc
+
+full_nrc = full_nrc %>% arrange(datetime)
+full_nrc3 = full_nrc[42:55,]
+
+plot(full_nrc3$datetime, full_nrc1$pred, main = "NFLX - XG Boosting", xlab = "Datetime", ylab = "Price",col = 'orange', pch = 2, ylim = c(-3, 3))
+points(full_nrc3$datetime, full_nrc3$price)
+legend('topright', col = c(1,4), pch = c(1,2), legend = c("price","pred"), )
+full_nrc3$diff = c(diff(full_nrc3$price),0)
+full_nrc3$trend = ifelse(full_nrc3$diff>0, 1, 0)
+full_nrc3$trend = factor(full_nrc3$trend)
+
+pred_cart = predict(xg_tree, as.matrix(full_nrc3[,5:14]))
+confusionMatrix(factor(round(abs(pred_cart))), full_nrc3$trend)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
